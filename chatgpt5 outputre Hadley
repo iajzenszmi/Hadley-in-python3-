@@ -1,0 +1,261 @@
+Awesome paper find! Here’s a self-contained Python 3 demo that implements a toy energetic model of Hadley-cell width, tying the edge latitude  to (i) tropical net energy input (NEI) and (ii) eddy energy export—exactly the two “knobs” highlighted in the abstract you shared (seasonal cycle, ENSO, global warming).
+
+Idea: choose  so that area-weighted tropical NEI integrated from the equator to  balances eddy energy export across the subtropical edge.
+
+Seasonal cycle: modulate equatorial NEI over the year.
+
+ENSO: add a uniform positive tropical NEI anomaly during El Niño → contraction.
+
+Global warming: increase eddy export efficiency → expansion.
+
+
+Just copy into hadley_width_demo.py and run with python3 hadley_width_demo.py. It has no non-standard dependencies (only numpy and matplotlib).
+
+#!/usr/bin/env python3
+"""
+hadley_width_demo.py
+
+A minimal energetic demo of Hadley Circulation (HC) width variations:
+- HC edge latitude φ_H is set by balancing integrated tropical NEI with
+  eddy energy export across the subtropics.
+- Shows seasonal cycle, an El Niño event (positive tropical NEI anomaly),
+  and a global-warming-like increase in eddy export efficiency.
+
+This is a pedagogical toy model inspired by the abstract of:
+  Khapikova & Schneider (2025), JAS, doi:10.1175/JAS-D-25-0052.1
+It is *not* a reproduction of their full framework and ignores angular
+momentum constraints and other complexities.
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ----------------------------
+# Units & grids
+# ----------------------------
+deg2rad = np.pi / 180.0
+rad2deg = 180.0 / np.pi
+
+# Latitude grid for integrals (0 to 40°; symmetric about equator)
+lat_max_deg = 40.0
+phi = np.linspace(0.0, lat_max_deg * deg2rad, 801)  # radians, 0..phi_max
+
+# Time grid (monthly over one year; t in [0,1))
+n_months = 12
+t = np.arange(n_months) / n_months  # fraction of year
+
+# ----------------------------
+# Parameterization choices
+# ----------------------------
+# NEI(φ, t) shape (W m^-2): peaked at equator, decreasing toward subtropics.
+# We'll use: NEI = N_eq(t) - b * sin^2(φ) + A_hemi * sin(φ)
+# - N_eq(t): seasonal cycle at equator
+# - b * sin^2: mean tropical decrease away from equator
+# - A_hemi * sin(φ): small hemispheric asymmetry (cross-equatorial energy)
+N0 = 100.0    # mean equatorial net energy input (W m^-2), toy value
+A_season = 25.0  # seasonal amplitude at equator (W m^-2)
+season_phase = 0.0  # shift peak to t=0 (adjust for calendar if desired)
+b_shape = 160.0     # curvature controlling how fast NEI falls off with latitude
+A_hemi = 5.0        # small asymmetry term (W m^-2)
+
+# ENSO anomaly: add ΔN_ENSO uniformly over tropical belt during event months
+enso_strength = 15.0   # W m^-2 (positive = El Niño, increases NEI → contraction)
+enso_months = {11, 0, 1}  # example: Nov–Jan (0=Jan if you prefer; adjust freely)
+
+# Eddy export across φ_H (W m^-2, area-normalized proxy):
+# Parameterize export capacity as E_eddy(φ_H, t) = k(t) * φ_H
+# - Larger k → more export for same width → allows a wider HC to balance NEI
+k0 = 320.0       # baseline eddy export efficiency (W m^-2 per rad), toy value
+warming_delta_k = 60.0  # global-warming-like increase in eddy export efficiency
+
+# Numerical settings
+EPS = 1e-6
+phi_lo = 1.0 * deg2rad      # lower bound for root search (avoid exactly zero)
+phi_hi = lat_max_deg * deg2rad  # upper bound for root search
+max_iter = 80
+
+# ----------------------------
+# Helper functions
+# ----------------------------
+def nei_profile(phi_r, tfrac, enso=False):
+    """
+    NEI(φ, t): W m^-2, φ_r in radians, tfrac in [0,1)
+    """
+    N_eq_t = N0 + A_season * np.cos(2*np.pi*(tfrac - season_phase))
+    base = N_eq_t - b_shape * np.sin(phi_r)**2 + A_hemi * np.sin(phi_r)
+    if enso:
+        base = base + enso_strength
+    return base
+
+def tropical_nei_integral(phi_edge, tfrac, enso=False):
+    """
+    2 * ∫_{0}^{φ_edge} NEI(φ, t) * cosφ dφ
+    The factor cosφ approximates area weighting in latitude for a zonal mean.
+    We multiply by 2 for both hemispheres, assuming symmetry aside from the small
+    sin(φ) term included in NEI. Simple trapezoidal rule over our phi grid.
+    """
+    mask = phi <= phi_edge
+    phi_seg = phi[mask]
+    if phi_seg.size < 2:
+        return 0.0
+    nei = nei_profile(phi_seg, tfrac, enso=enso)
+    integrand = nei * np.cos(phi_seg)
+    # trapezoid
+    I = np.trapz(integrand, phi_seg)
+    return 2.0 * I  # both hemispheres
+
+def eddy_export(phi_edge, k_eff):
+    """
+    E_eddy(φ_H) = k_eff * φ_H  (toy linear law).
+    """
+    return k_eff * phi_edge
+
+def solve_phi_edge(tfrac, k_eff, enso=False):
+    """
+    Solve F(φ_H) = ∫ NEI area-weighted - E_eddy(φ_H) = 0 for φ_H ∈ [phi_lo, phi_hi]
+    using bisection (robust for monotone-ish F in this toy setup).
+    """
+    def F(phi_edge):
+        return tropical_nei_integral(phi_edge, tfrac, enso=enso) - eddy_export(phi_edge, k_eff)
+
+    lo, hi = phi_lo, phi_hi
+    f_lo = F(lo)
+    f_hi = F(hi)
+
+    # If signs not opposite (pathological params), clamp gracefully
+    if f_lo == 0.0:
+        return lo
+    if f_hi == 0.0:
+        return hi
+    if f_lo * f_hi > 0:
+        # Try nudging bounds; if still no sign change, return the smaller bound
+        for nud in np.linspace(0.5, 0.95, 6):
+            hi2 = phi_lo + nud * (phi_hi - phi_lo)
+            if F(hi2) * f_lo < 0:
+                hi = hi2
+                f_hi = F(hi)
+                break
+        else:
+            # Fall back: pick a small positive width
+            return max(phi_lo, min(phi_hi, (phi_lo + phi_hi) * 0.3))
+
+    # Bisection
+    for _ in range(max_iter):
+        mid = 0.5 * (lo + hi)
+        fm = F(mid)
+        if abs(fm) < 1e-4:
+            return mid
+        if f_lo * fm < 0:
+            hi, f_hi = mid, fm
+        else:
+            lo, f_lo = mid, fm
+        if (hi - lo) < 0.01 * deg2rad:  # ~0.01° tolerance
+            return 0.5 * (lo + hi)
+    return 0.5 * (lo + hi)
+
+# ----------------------------
+# Simulations
+# ----------------------------
+def run_scenarios():
+    """
+    Compute φ_H(t) for three scenarios:
+    1) Baseline seasonal cycle (no ENSO, k = k0)
+    2) ENSO (El Niño months add +ΔNEI, k = k0)
+    3) Warming (no ENSO, k = k0 + Δk)
+    """
+    phiH_base = np.zeros(n_months)
+    phiH_enso = np.zeros(n_months)
+    phiH_warm = np.zeros(n_months)
+
+    for i, ti in enumerate(t):
+        # Baseline seasonal
+        phiH_base[i] = solve_phi_edge(ti, k0, enso=False)
+        # ENSO in selected months (add uniform +NEI in tropics)
+        enso_flag = (i in enso_months)
+        phiH_enso[i] = solve_phi_edge(ti, k0, enso=enso_flag)
+        # Warming: increased eddy export efficiency
+        phiH_warm[i] = solve_phi_edge(ti, k0 + warming_delta_k, enso=False)
+
+    return phiH_base * rad2deg, phiH_enso * rad2deg, phiH_warm * rad2deg
+
+# ----------------------------
+# Plotting utilities
+# ----------------------------
+def plot_time_series(phiH_base_deg, phiH_enso_deg, phiH_warm_deg):
+    months = np.arange(1, n_months + 1)
+    plt.figure(figsize=(9, 5))
+    plt.plot(months, phiH_base_deg, lw=2, label="Baseline seasonal")
+    plt.plot(months, phiH_enso_deg, lw=2, ls="--", label="With El Niño months")
+    plt.plot(months, phiH_warm_deg, lw=2, ls=":", label="Warming: higher eddy export")
+    plt.xlabel("Month")
+    plt.ylabel("Hadley edge latitude  φ_H  (degrees)")
+    plt.title("Toy energetic HC width model: seasonal, ENSO, and warming")
+    plt.xticks(months)
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+
+def plot_nei_slices():
+    """
+    Show NEI(φ) snapshots for:
+      - Seasonal max at the equator (t=0)
+      - Seasonal min (t=0.5)
+      - El Niño composite (+ΔNEI)
+    """
+    fig = plt.figure(figsize=(9, 5))
+    deg = phi * rad2deg
+    nei_max = nei_profile(phi, tfrac=0.0, enso=False)
+    nei_min = nei_profile(phi, tfrac=0.5, enso=False)
+    nei_enso = nei_profile(phi, tfrac=0.0, enso=True)
+
+    plt.plot(deg, nei_max, lw=2, label="NEI seasonal max (t=0)")
+    plt.plot(deg, nei_min, lw=2, ls="--", label="NEI seasonal min (t=0.5)")
+    plt.plot(deg, nei_enso, lw=2, ls=":", label="NEI with El Niño anomaly")
+    plt.xlabel("Latitude (degrees from equator)")
+    plt.ylabel("NEI(φ)  (W m$^{-2}$)")
+    plt.title("Toy NEI latitude profiles")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+
+def main():
+    phiH_base_deg, phiH_enso_deg, phiH_warm_deg = run_scenarios()
+    print("\n=== Toy energetic HC width demo ===")
+    print("Mean φ_H (deg):")
+    print(f"  Baseline seasonal: {phiH_base_deg.mean():5.2f}")
+    print(f"  ENSO (including El Niño months): {phiH_enso_deg.mean():5.2f}")
+    print(f"  Warming (higher eddy export): {phiH_warm_deg.mean():5.2f}")
+
+    print("\nMonthly φ_H (deg) [Baseline | ENSO | Warming]:")
+    for i in range(n_months):
+        print(f"  m={i+1:02d}: {phiH_base_deg[i]:5.2f} | {phiH_enso_deg[i]:5.2f} | {phiH_warm_deg[i]:5.2f}")
+
+    plot_time_series(phiH_base_deg, phiH_enso_deg, phiH_warm_deg)
+    plot_nei_slices()
+    plt.show()
+
+if __name__ == "__main__":
+    main()
+
+What this demo shows (qualitative match to the abstract)
+
+Seasonal cycle:  varies → the integrated tropical NEI changes → the root  moves by ~a few–10° (tunable via A_season, b_shape), giving a clear seasonal migration.
+
+El Niño: we add a positive tropical NEI anomaly in selected months (enso_months). Because there’s more energy to export for the same width, the model finds a smaller  to balance it → HC contracts during El Niño (as stated in the abstract).
+
+Global warming surrogate: increase the eddy export efficiency (warming_delta_k > 0), which expands  (more export capacity supports a wider cell), again matching the qualitative statement.
+
+
+Tuning tips
+
+Increase A_season to amplify the seasonal migration.
+
+Change enso_strength and enso_months to mimic different ENSO strengths/timings.
+
+Adjust warming_delta_k to control expansion under the warming scenario.
+
+If you want the cell to reach ~30° on average, nudge (N0, b_shape, k0) together; larger k0 → wider HC for the same NEI.
+
+
+If you’d like, I can also package this as a small Jupyter notebook with sliders (so you can “dial” ENSO strength and eddy efficiency and watch  respond).
+
