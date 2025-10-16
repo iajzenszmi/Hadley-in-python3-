@@ -1,0 +1,154 @@
+python3 hadley.py                         /data/data/com.termux/files/home/downloads/hadley.py:67: DeprecationWarning: `trapz` is deprecated. Use `trapezoid` instead, or one of the numerical integration functions in `scipy.integrate`.
+  return 2.0 * np.trapz(nei * np.cos(seg), seg)
+=== Hadley Width Demo (constant eddy export) ===
+Baseline mean Ï†_H: 42.27Â° Seasonal amplitude (baseline): 23.79Â°                  ENSO contraction Î” (ENSO - base, ENSO months): -3.38Â°  (expect negative)
+Warming expansion Î” (annual-mean): 10.98Â°          (expect positive)              Saved figures to: hadley_width_timeseries_final.png and nei_profiles_final.png
+~/downloads $ ls hadley*    hadley.py
+hadley_width_timeseries_final.png
+~/downloads $ firefox hadley_width_timeseries_final.png
+Error: no DISPLAY environment variable specified        ~/downloads $ pkg-search image                          pkg-search: command not found
+~/downloads $ pkg search image                          Hit:1 https://termux.net stable InRelease               Hit:2 https://x11-packages.termux.net x11 InRelease
+                            Building dependency tree... Building dependency tree... Building dependency tree... Building dependency tree... Building dependency tree...                             Reading state information...Reading state information...                            All packages are up to date.abootimg/stable 0.6-3 aarch>  Pack or unpack android bo>                            aview/stable 1.3.0rc1-7 aar>  High quality ascii-art im>
+                            bdsup2sub/stable 4.0.1-1 all
+  A subtitle conversion too>
+catimg/stable 2.7.0-1 aarch>  Renders images in the ter>
+                            cavif-rs/stable 1.5.6 aarch>
+  AVIF image creator in pur>
+chafa/stable 1.16.2-1 aarch>
+~/downloads $ pkg search image png
+libpngwriter/stable 0.7.0-1>  C++ library for creating >
+                            optipng/stable 7.9.1-1 aarc>
+  PNG optimizer that recomp>
+pngquant/stable 3.0.3-2 aar>  PNG image optimising util>
+                            lines 1-9/9 (END)...skipping...                         libpngwriter/stable 0.7.0-1>
+  C++ library for creating >
+optipng/stable 7.9.1-1 aarc>  PNG optimizer that recomp>
+                            pngquant/stable 3.0.3-2 aar>
+  PNG image optimising util>
+~                           ~
+~                           ~
+libpngwriter/stable 0.7.0-1>  C++ library for creating >
+                            optipng/stable 7.9.1-1 aarc>
+  PNG optimizer that recomp>
+pngquant/stable 3.0.3-2 aar>  PNG image optimising util>
+                            ~
+~                           ~
+~                           ~
+~                           ~
+                            ~/downloads $ python3 hadley.py                         /data/data/com.termux/files/home/downloads/hadley.py:67: DeprecationWarning: `trapz` is deprecated. Use `trapezoid` instead, or one of the numerical integration functions in `scipy.integrate`.
+  return 2.0 * np.trapz(nei * np.cos(seg), seg)
+=== Hadley Width Demo (constant eddy export) ===
+Baseline mean Ï†_H: 42.27Â° Seasonal amplitude (baseline): 23.79Â°                  ENSO contraction Î” (ENSO - base, ENSO months): -3.38Â°  (expect negative)
+Warming expansion Î” (annual-mean): 10.98Â°          (expect positive)              Saved figures to: hadley_width_timeseries_final.png and nei_profiles_final.png
+~/downloads $ cat hadley.py #!/usr/bin/env python3
+"""                         hadley_width_demo_final.py
+                            A compact, teaching-oriented energetic model of Hadley-cell width.
+It balances area-weighted tropical Net Energy Input (NEI) integrated to Ï†_H        against a constant eddy energy export capacity k.       
+Key qualitative behaviors (matching the cited abstract):
+- Positive tropical NEI anomaly (El NiÃ±o) -> contraction (smaller Ï†_H).           - Increased eddy export efficiency/capacity (global-warming surrogate) -> expansion (larger Ï†_H).              
+This is a toy model for pedagogy; it omits angular momentum constraints, detailed   dynamics, and realistic OHT.
+                            Usage
+-----                       python3 hadley_width_demo_final.py \                      --enso_strength 15 \
+  --warming_delta_k 40 \      --A_season 25 \
+  --outdir ./outputs        
+It will print a summary and save two figures:
+- hadley_width_timeseries_final.png
+- nei_profiles_final.png    """
+                            import argparse
+import numpy as np          import matplotlib.pyplot as plt                         from pathlib import Path
+                            # ----------------------------                          # Helpers
+# ----------------------------
+deg2rad = np.pi / 180.0     rad2deg = 180.0 / np.pi
+                            def build_nei_profile(phi, tfrac, N0, A_season, season_phase, b_shape, A_hemi,
+                      enso=False, enso_strength=15.0):
+    """                         NEI(Ï†, t): W m^-2 (toy). Equator-peaked profile that decays toward subtropics.
+    Seasonal cycle only at the equator (for simplicity).
+                                ENSO anomaly is latitude-tapered (Gaussian), peaking at the equator.
+    """                         N_eq_t = N0 + A_season * np.cos(2*np.pi*(tfrac - season_phase))
+    base = N_eq_t - b_shape * np.sin(phi)**2 + A_hemi * np.sin(phi)                     if enso:
+        sigma = (15.0 * deg2rad)  # e-fold width ~15Â°
+        taper = np.exp(-(phi**2) / (2*sigma**2))
+        base = base + enso_strength * taper
+    return base             
+def tropical_nei_integral(phi_edge, phi_grid, tfrac, N0, A_season, season_phase,                              b_shape, A_hemi, enso=False, enso_strength=15.0):
+    """                         2 * âˆ«_0^{Ï†_edge} NEI(Ï†, t) * cosÏ† dÏ† (pseudo-units, area-weighted per radian)                             """
+    mask = phi_grid <= phi_edge
+    seg = phi_grid[mask]        if seg.size < 2:
+        return 0.0              nei = build_nei_profile(seg, tfrac, N0, A_season, season_phase, b_shape, A_hemi,
+                            enso=enso, enso_strength=enso_strength)                     return 2.0 * np.trapz(nei * np.cos(seg), seg)       
+def solve_phi_edge_constant_export(phi_grid, tfrac, k_eff, N0, A_season, season_phase,
+                                   b_shape, A_hemi, enso=False, enso_strength=15.0,                                    phi_lo=1.0*deg2rad, phi_hi=60.0*deg2rad, max_iter=160):                          """
+    Solve for Ï†_H with constant eddy export capacity k_eff:                        
+      2 âˆ«_0^{Ï†_H} NEI(Ï†, t) cosÏ† dÏ† = k_eff
+                                Bisection is robust as the LHS is monotone increasing in Ï†_H for this NEI choice.                              If the signs do not bracket, we fall back to argmin |residual| on a dense grid.
+    """                         def F(phi_edge):
+        lhs = tropical_nei_integral(phi_edge, phi_grid, tfrac, N0, A_season, season_phase,
+                                    b_shape, A_hemi, enso=enso, enso_strength=enso_strength)
+        return lhs - k_eff  
+    lo, hi = phi_lo, phi_hi     f_lo, f_hi = F(lo), F(hi)                               if f_lo * f_hi > 0:
+        cand = np.linspace(lo, hi, 800)
+        vals = np.array([F(x) for x in cand])
+        return cand[np.argmin(np.abs(vals))]
+                                for _ in range(max_iter):                                   mid = 0.5*(lo+hi)
+        fm = F(mid)                 if abs(fm) < 1e-5 or (hi-lo) < 0.01*deg2rad:                return mid
+        if f_lo * fm < 0:               hi, f_hi = mid, fm                                  else:
+            lo, f_lo = mid, fm
+    return 0.5*(lo+hi)      
+def main():                     ap = argparse.ArgumentParser(description="Toy energetic Hadley-width model (constant eddy export).")            ap.add_argument("--enso_strength", type=float, default=15.0, help="ENSO NEI anomaly amplitude at equator (W m^-2).")
+    ap.add_argument("--warming_delta_k", type=float, default=40.0, help="Increase in eddy export capacity for warming scenario (pseudo-units).")
+    ap.add_argument("--A_season", type=float, default=25.0, help="Seasonal amplitude of equatorial NEI (W m^-2).")                              ap.add_argument("--outdir", type=str, default=".", help="Output directory for figures.")                        args = ap.parse_args()
+                                # ----------------------------                          # Fixed parameters (tunable)                            # ----------------------------                          N0 = 100.0         # Mean equatorial NEI (W m^-2), toy value
+    season_phase = 0.0 # Seasonal phase
+    b_shape = 160.0    # Controls latitudinal decay of NEI                              A_hemi = 5.0       # Small hemispheric asymmetry        lat_max_deg = 60.0
+    phi_grid = np.linspace(0.0, lat_max_deg*deg2rad, 1601)                              n_months = 12
+    months = np.arange(1, n_months+1)
+    tfracs = np.arange(n_months) / n_months
+                                # Choose k0 (baseline eddy export capacity) so that Ï†_H â‰ˆ 30Â° at t=0 (no ENSO) by direct evaluation         target_phi = 30.0 * deg2rad                             k0 = tropical_nei_integral(target_phi, phi_grid, 0.0, N0, args.A_season, season_phase,                                                     b_shape, A_hemi, enso=False, enso_strength=args.enso_strength)                   
+    # ENSO months (example: Novâ€“Jan)
+    enso_months = {11, 0, 1}  # (0-based index: Jan=0)
+                                # ----------------------------                          # Simulations
+    # ----------------------------
+    phiH_base = np.zeros(n_months)
+    phiH_enso = np.zeros(n_months)
+    phiH_warm = np.zeros(n_months)
+                                for i, ti in enumerate(tfracs):                             phiH_base[i] = solve_phi_edge_constant_export(              phi_grid, ti, k0, N0, args.A_season, season_phase, b_shape, A_hemi,
+            enso=False, enso_strength=args.enso_strength
+        )                           phiH_enso[i] = solve_phi_edge_constant_export(              phi_grid, ti, k0, N0, args.A_season, season_phase, b_shape, A_hemi,
+            enso=(i in enso_months), enso_strength=args.enso_strength                       )
+        phiH_warm[i] = solve_phi_edge_constant_export(
+            phi_grid, ti, k0 + args.warming_delta_k, N0, args.A_season, season_phase, b_shape, A_hemi,
+            enso=False, enso_strength=args.enso_strength
+        )                   
+    phiH_base_deg = phiH_base * rad2deg
+    phiH_enso_deg = phiH_enso * rad2deg
+    phiH_warm_deg = phiH_warm * rad2deg
+                                # ----------------------------                          # Summary (toy metrics)
+    # ----------------------------
+    enso_idx = sorted(list(enso_months))
+    base_enso_window = float(np.mean([phiH_base_deg[i] for i in enso_idx]))             enso_enso_window = float(np.mean([phiH_enso_deg[i] for i in enso_idx]))
+    enso_delta = enso_enso_window - base_enso_window   # should be negative (contraction)
+                                warming_delta = float(phiH_warm_deg.mean() - phiH_base_deg.mean())  # should be positive (expansion)        
+    print("=== Hadley Width Demo (constant eddy export) ===")                           print(f"Baseline mean Ï†_H: {phiH_base_deg.mean():.2f}Â°")
+    print(f"Seasonal amplitude (baseline): {(phiH_base_deg.max()-phiH_base_deg.min()):.2f}Â°")
+    print(f"ENSO contraction Î” (ENSO - base, ENSO months): {enso_delta:.2f}Â°  (expect negative)")
+    print(f"Warming expansion Î” (annual-mean): {warming_delta:.2f}Â°          (expect positive)")
+                                # ----------------------------                          # Plots
+    # ----------------------------
+    outdir = Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+                                # Time series
+    plt.figure(figsize=(9,5))
+    plt.plot(months, phiH_base_deg, lw=2, label="Baseline seasonal")                    plt.plot(months, phiH_enso_deg, lw=2, ls="--", label="With El NiÃ±o months")
+    plt.plot(months, phiH_warm_deg, lw=2, ls=":", label="Warming: higher eddy export")
+    plt.xlabel("Month")         plt.ylabel("Hadley edge latitude  Ï†_H  (degrees)")     plt.title("Toy energetic HC width model (constant eddy export)")
+    plt.xticks(months)          plt.grid(True, alpha=0.3)                               plt.legend()
+    plt.tight_layout()          fig1 = outdir / "hadley_width_timeseries_final.png"     plt.savefig(fig1, dpi=160)                              plt.close()
+                                # NEI profiles at t=0 (max) and t=0.5 (min), with and without ENSO
+    deg = phi_grid * rad2deg    nei_max = build_nei_profile(phi_grid, 0.0, N0, args.A_season, season_phase, b_shape, A_hemi, enso=False, enso_strength=args.enso_strength)                              nei_min = build_nei_profile(phi_grid, 0.5, N0, args.A_season, season_phase, b_shape, A_hemi, enso=False, enso_strength=args.enso_strength)                              nei_enso = build_nei_profile(phi_grid, 0.0, N0, args.A_season, season_phase, b_shape, A_hemi, enso=True, enso_strength=args.enso_strength)                          
+    plt.figure(figsize=(9,5))
+    plt.plot(deg, nei_max, lw=2, label="NEI seasonal max (t=0)")                        plt.plot(deg, nei_min, lw=2, ls="--", label="NEI seasonal min (t=0.5)")
+    plt.plot(deg, nei_enso, lw=2, ls=":", label="NEI with El NiÃ±o anomaly (t=0)")      plt.xlabel("Latitude (degrees from equator)")           plt.ylabel("NEI(Ï†)  (W m$^{-2}$)")                     plt.title("Toy NEI latitude profiles")                  plt.grid(True, alpha=0.3)                               plt.legend()
+    plt.tight_layout()          fig2 = outdir / "nei_profiles_final.png"                plt.savefig(fig2, dpi=160)                              plt.close()
+                                print(f"Saved figures to: {fig1} and {fig2}")       
+if __name__ == "__main__":      main()
+~/downloads $
